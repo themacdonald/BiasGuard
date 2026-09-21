@@ -1,3 +1,5 @@
+import pytest
+
 from biasguard.metrics import (
     disparate_impact_ratio,
     equal_opportunity_difference,
@@ -11,28 +13,46 @@ def test_selection_rate():
     assert selection_rate([1, 0, 1, 0]) == 0.5
 
 
+def test_dir_uses_exact_rates_without_integer_rounding():
+    p = [1, 0, 0, 0, 1, 0, 0]  # 2/7
+    r = [1, 1, 0, 0, 1, 0, 0, 0, 1]  # 4/9
+    assert disparate_impact_ratio(p, r) == pytest.approx((2 / 7) / (4 / 9))
+
+
+def test_dir_undefined_when_reference_rate_is_zero():
+    assert disparate_impact_ratio([1, 0], [0, 0]) is None
+
+
+def test_empty_selection_rate_is_rejected():
+    with pytest.raises(ValueError, match="empty"):
+        selection_rate([])
+
+
+def test_invalid_binary_values_are_rejected():
+    with pytest.raises(ValueError, match="0/1"):
+        selection_rate([1, 2])
+
+
 def test_spd():
-    p = [1, 0, 0, 0]  # 0.25
-    r = [1, 1, 0, 0]  # 0.5
-    assert statistical_parity_difference(p, r) == 0.25 - 0.5
+    assert statistical_parity_difference([1, 0, 0, 0], [1, 1, 0, 0]) == -0.25
 
 
 def test_tpr():
-    y_true = [1, 1, 0, 0]
-    y_pred = [1, 0, 1, 0]
-    assert true_positive_rate(y_true, y_pred) == 0.5
+    assert true_positive_rate([1, 1, 0, 0], [1, 0, 1, 0]) == 0.5
+
+
+def test_tpr_undefined_without_positive_examples():
+    assert true_positive_rate([0, 0], [0, 1]) is None
 
 
 def test_eod():
-    y_true_p = [1, 1, 0, 0]
-    y_pred_p = [1, 0, 0, 0]  # TPR 0.5
-    y_true_r = [1, 1, 0, 0]
-    y_pred_r = [1, 1, 0, 0]  # TPR 1.0
-    assert equal_opportunity_difference(y_true_p, y_pred_p, y_true_r, y_pred_r) == -0.5
+    assert equal_opportunity_difference(
+        [1, 1, 0, 0], [1, 0, 0, 0],
+        [1, 1, 0, 0], [1, 1, 0, 0],
+    ) == -0.5
 
 
-def test_dir_nonzero_ref():
-    p = [1, 0, 0, 0]  # 0.25
-    r = [1, 1, 0, 0]  # 0.5
-    # expected 0.25 / 0.5 = 0.5
-    assert abs(disparate_impact_ratio(p, r) - 0.5) < 1e-9
+def test_eod_undefined_when_group_has_no_positives():
+    assert equal_opportunity_difference(
+        [0, 0], [0, 0], [1, 0], [1, 0]
+    ) is None

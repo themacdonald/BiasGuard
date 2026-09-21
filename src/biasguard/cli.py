@@ -6,13 +6,9 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from .audit import audit_csv, render_markdown
 from .calibration import calibration_summary, load_jsonl
-from .evaluation import (
-    BiasGuardEvaluator,
-    EvaluationPolicy,
-    build_questions,
-    build_state,
-)
+from .evaluation import BiasGuardEvaluator, EvaluationPolicy, build_questions, build_state
 from .metrics import (
     FairnessReport,
     disparate_impact_ratio,
@@ -43,12 +39,30 @@ def cmd_demo(args: argparse.Namespace) -> None:
         spd=statistical_parity_difference(y_pred_p, y_pred_r),
         eod=equal_opportunity_difference(y_true_p, y_pred_p, y_true_r, y_pred_r),
     )
-    _write_json(args.out, {
-        "disparate_impact_ratio": report.dir,
-        "statistical_parity_difference": report.spd,
-        "equal_opportunity_difference": report.eod,
-    })
+    _write_json(args.out, asdict(report))
     print(f"Wrote: {args.out}")
+
+
+def cmd_audit(args: argparse.Namespace) -> None:
+    try:
+        report = audit_csv(
+            args.dataset,
+            y_true=args.y_true,
+            y_pred=args.y_pred,
+            group=args.group,
+            protected=args.protected,
+            reference=args.reference,
+            allow_missing=args.allow_missing,
+        )
+    except ValueError as exc:
+        raise SystemExit(f"Audit input error: {exc}") from exc
+
+    _write_json(args.output, report)
+    if args.markdown:
+        out = Path(args.markdown)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(render_markdown(report), encoding="utf-8")
+    print(json.dumps(report["metrics"], indent=2))
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
@@ -69,25 +83,21 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     else:
         client = TypeSafeHTTPClient(model=args.model, base_url=args.base_url)
 
-    evaluator = BiasGuardEvaluator(
-        client,
-        policy=EvaluationPolicy(),
-        model=args.model,
-    )
-    record = evaluator.evaluate(state, questions)
-    payload = asdict(record)
+    evaluator = BiasGuardEvaluator(client, policy=EvaluationPolicy(), model=args.model)
+    payload = asdict(evaluator.evaluate(state, questions))
     _write_json(args.output, payload)
     if args.append:
         Path(args.append).parent.mkdir(parents=True, exist_ok=True)
-        with Path(args.append).open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        with Path(args.append).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
     print(json.dumps(payload["result"], indent=2))
 
 
 def cmd_calibrate(args: argparse.Namespace) -> None:
-    judgments = load_jsonl(args.judgments)
-    labels = load_jsonl(args.labels)
-    summary = calibration_summary(judgments, labels)
+    summary = calibration_summary(
+        load_jsonl(args.judgments),
+        load_jsonl(args.labels),
+    )
     _write_json(args.output, summary)
     print(f"Wrote: {args.output}")
 
@@ -103,49 +113,39 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--out", default="reports/report.json")
     demo.set_defaults(func=cmd_demo)
 
-    evaluate = sub.add_parser(
-        "evaluate",
-        help="Evaluate a case using recorded structured answers.",
+    audit = sub.add_parser(
+        "audit",
+        help="Run a deterministic fairness audit against a CSV dataset.",
     )
-    evaluate.add_argument("--input", required=True, help="Case JSON.")
-    evaluate.add_argument(
-        "--answers",
-        help="Optional recorded answers JSON. If omitted, call TypeSafe System One.",
-    )
-    evaluate.add_argument(
-        "--base-url",
-        default="https://api.typesafe.ai",
-        help="TypeSafe API base URL.",
-    )
-    evaluate.add_argument(
-        "--model", default="jev-latest",
-        help="Evaluator/model identifier recorded in the audit record.",
-    )
-    evaluate.add_argument(
-        "--output", default="reports/judgment.json",
-        help="JSON audit record output.",
-    )
-    evaluate.add_argument(
-        "--append",
-        help="Optional JSONL path for calibration data collection.",
-    )
+    audit.add_argument("dataset", help="Path to the CSV dataset.")
+    audit.add_argument("--y-true", required=True, help="Ground-truth outcome column.")
+    audit.add_argument("--y-pred", required=True, help="Model prediction column.")
+    audit.add_argument("--group", required=True, help="Protected-group column.")
+    audit.add_argument("--protected", required=True, help="Protected group value.")
+    audit.add_argument("--reference", required=True, help="Reference group value.")
+    audit.add_argument("--allow-missing", action="store_true")
+    audit.add_argument("--output", default="reports/audit.json")
+    audit.add_argument("--markdown", help="Optional Markdown report path.")
+    audit.set_defaults(func=cmd_audit)
+
+    evaluate = sub.add_parser("evaluate", help="Evaluate a case with structured judgments.")
+    evaluate.add_argument("--input", required=True)
+    evaluate.add_argument("--answers")
+    evaluate.add_argument("--base-url", default="https://api.typesafe.ai")
+    evaluate.add_argument("--model", default="jev-latest")
+    evaluate.add_argument("--output", default="reports/judgment.json")
+    evaluate.add_argument("--append")
     evaluate.set_defaults(func=cmd_evaluate)
 
-    calibrate = sub.add_parser(
-        "calibrate",
-        help="Calibrate recorded judgments against adjudicated labels.",
-    )
-    calibrate.add_argument("--judgments", required=True, help="Judgment JSONL.")
-    calibrate.add_argument("--labels", required=True, help="Adjudicated label JSONL.")
-    calibrate.add_argument(
-        "--output", default="reports/calibration.json",
-        help="Calibration report output.",
-    )
+    calibrate = sub.add_parser("calibrate", help="Calibrate recorded judgments.")
+    calibrate.add_argument("--judgments", required=True)
+    calibrate.add_argument("--labels", required=True)
+    calibrate.add_argument("--output", default="reports/calibration.json")
     calibrate.set_defaults(func=cmd_calibrate)
+
     return parser
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
+    args = build_parser().parse_args()
     args.func(args)
