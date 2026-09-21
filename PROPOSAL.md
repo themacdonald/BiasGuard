@@ -23,7 +23,61 @@ Instead, BiasGuard aims to answer:
 
 ---
 
-## 2. Background and Rationale
+## 2. Current Project Status
+
+BiasGuard is currently in an **early implementation stage**.
+
+The repository should distinguish between functionality that is implemented, functionality currently being developed, and longer-term capabilities.
+
+### Implemented
+
+The current repository includes:
+
+* Deterministic fairness metrics
+* Disparate Impact Ratio
+* Statistical Parity Difference
+* Equal Opportunity Difference
+* A basic fairness report structure
+* CLI demonstration workflow
+* Automated tests for the fairness metrics
+* Python packaging configuration
+* Continuous integration configuration
+
+### In Development
+
+The current architecture is being extended with:
+
+* Structured AI evaluation
+* TypeSafe integration through an adapter
+* Noul, Choice, and Score evaluation primitives
+* Deterministic policy composition
+* Confidence-aware routing
+* Human-review routing
+* Evaluation state hashing
+* Evaluation audit records
+* Calibration utilities
+* Policy threshold analysis
+
+### Planned
+
+Longer-term work includes:
+
+* Counterfactual testing at scale
+* Interactive dashboards
+* Human adjudication interfaces
+* Persistent evaluation storage
+* Model/evaluator drift monitoring
+* Mitigation workflows
+* Re-evaluation pipelines
+* Governance reporting
+* Additional fairness metrics
+* Production deployment infrastructure
+
+The distinction is intentional. BiasGuard should not claim production capabilities that are not yet implemented in the repository.
+
+---
+
+## 3. Background and Rationale
 
 AI systems can produce unequal or problematic outcomes because of training data, model behavior, feature selection, proxy variables, decision thresholds, or the way outputs are interpreted and operationalized.
 
@@ -66,11 +120,9 @@ This separation is a fundamental architectural principle of the project.
 
 ---
 
-## 3. Core Design Philosophy
+## 4. Core Design Philosophy
 
-BiasGuard is built around several principles.
-
-### 3.1 Measurement and Judgment Are Different
+### 4.1 Measurement and Judgment Are Different
 
 Deterministic statistical measurements and structured evaluator judgments answer different questions.
 
@@ -89,7 +141,7 @@ Neither layer should silently replace the other.
 
 ---
 
-### 3.2 Evaluator Confidence Is Not Truth
+### 4.2 Evaluator Confidence Is Not Truth
 
 A structured evaluator may report high confidence and still be wrong.
 
@@ -99,11 +151,9 @@ Stored judgments can subsequently be compared against human-adjudicated labels t
 
 ---
 
-### 3.3 Policy Is Explicit
+### 4.3 Policy Is Explicit
 
 Operational thresholds should exist in configuration rather than being hidden inside an evaluator.
-
-For example:
 
 ```text
 evaluation
@@ -121,7 +171,7 @@ The evaluator provides evidence. The policy determines the operational response.
 
 ---
 
-### 3.4 Uncertainty Can Trigger Human Review
+### 4.4 Uncertainty Can Trigger Human Review
 
 Ambiguous cases should not necessarily be forced into an automated outcome.
 
@@ -133,11 +183,11 @@ BiasGuard can route cases to human review when:
 * Severity is uncertain
 * A configured review threshold is reached
 
-Human adjudication can then become part of the calibration dataset.
+Human adjudication can subsequently become part of the calibration dataset.
 
 ---
 
-## 4. Target Audience
+## 5. Target Audience
 
 BiasGuard is intended for:
 
@@ -155,25 +205,28 @@ The underlying architecture is not restricted to hiring.
 
 ---
 
-## 5. Core Use Cases
+## 6. Core Use Cases
 
-### 5.1 Dataset Analysis
+### 6.1 Dataset Analysis
 
-Load historical decision data and calculate:
+**Status: Implemented at the metric layer; broader ingestion planned.**
+
+Load decision data and calculate:
 
 * Group distributions
 * Selection rates
 * Outcome differences
 * Fairness metrics
-* Data-quality indicators
+
+Broader schema validation, preprocessing, and dataset management remain future work.
 
 ---
 
-### 5.2 Counterfactual Testing
+### 6.2 Counterfactual Testing
+
+**Status: Planned.**
 
 Create controlled variations of an input while changing selected attributes.
-
-For example:
 
 ```text
 Original
@@ -183,27 +236,33 @@ Counterfactual
 Gender = Female
 ```
 
-The system can then compare model outputs and identify whether the decision changes.
+The system can eventually compare model outputs and identify whether the decision changes.
 
-Counterfactual differences are treated as evidence for further investigation rather than automatic proof of discrimination.
+Counterfactual differences should be treated as evidence for investigation rather than automatic proof of discrimination.
 
 ---
 
-### 5.3 Fairness Measurement
+### 6.3 Fairness Measurement
 
-BiasGuard currently supports:
+**Status: Implemented.**
+
+The current fairness engine includes:
 
 * Disparate Impact Ratio
 * Statistical Parity Difference
 * Equal Opportunity Difference
 
+These metrics are implemented as deterministic functions and have automated tests.
+
 Additional metrics can be added without changing the overall architecture.
 
 ---
 
-### 5.4 Structured Decision Evaluation
+### 6.4 Structured Decision Evaluation
 
-Individual AI outputs can be evaluated using structured questions.
+**Status: In development.**
+
+The planned evaluation layer uses structured questions for individual AI outputs.
 
 Examples include:
 
@@ -219,11 +278,13 @@ Examples include:
 
 > How severe is the identified issue?
 
-This allows BiasGuard to evaluate dimensions that aggregate statistical metrics cannot directly capture.
+The evaluation adapter is designed to isolate the external structured-evaluation provider from the core BiasGuard architecture.
 
 ---
 
-### 5.5 Evaluator Calibration
+### 6.5 Evaluator Calibration
+
+**Status: In development.**
 
 Stored evaluator judgments can be compared with human-adjudicated labels.
 
@@ -231,7 +292,7 @@ For binary questions:
 
 * Brier score
 * Expected Calibration Error
-* Reliability curves
+* Reliability by probability bin
 * Precision
 * Recall
 * False positives
@@ -249,13 +310,15 @@ For categorical judgments:
 * Overall agreement
 * Per-class accuracy
 
-Calibration results provide evidence for evaluating the reliability of the evaluation system.
+Calibration is intended to provide evidence about evaluator reliability rather than automatically selecting policy thresholds.
 
 ---
 
-### 5.6 Policy Simulation
+### 6.6 Policy Simulation
 
-BiasGuard can analyze how different policy thresholds affect:
+**Status: In development.**
+
+BiasGuard is being designed to analyze how different policy thresholds affect:
 
 * Cases flagged
 * Cases missed
@@ -264,17 +327,17 @@ BiasGuard can analyze how different policy thresholds affect:
 * Human-review volume
 * Automated blocks
 
-This makes policy trade-offs visible without embedding a universal threshold into the evaluator.
+Threshold analysis should expose trade-offs rather than automatically declaring a threshold correct.
 
 ---
 
-### 5.7 Human Review
+### 6.7 Human Review
+
+**Status: In development.**
 
 Cases that meet configured review conditions can be routed for human adjudication.
 
-The resulting decision can be stored as an auditable label and reused for calibration.
-
-This creates a feedback loop:
+The resulting decision can be stored as an auditable label and subsequently used for calibration.
 
 ```text
 AI Evaluation
@@ -285,16 +348,16 @@ Adjudicated Label
       ↓
 Calibration
       ↓
-Evaluation Reliability Analysis
+Evaluator Reliability Analysis
 ```
 
 ---
 
-### 5.8 Mitigation and Re-evaluation
+### 6.8 Mitigation and Re-evaluation
 
-When an issue is identified, organizations can apply an appropriate intervention.
+**Status: Planned.**
 
-Possible interventions include:
+Potential interventions include:
 
 * Re-weighting
 * Resampling
@@ -304,34 +367,30 @@ Possible interventions include:
 * Output revision
 * Counterfactual testing
 
-Mitigation is followed by re-evaluation.
+Mitigation should be followed by re-evaluation.
 
 The system should compare the original and remediated results rather than assuming that an intervention succeeded because one metric improved.
 
 ---
 
-### 5.9 Governance and Audit Reporting
+### 6.9 Governance and Audit Reporting
 
-BiasGuard can generate reports containing:
+**Status: Partially implemented / in development.**
 
-* Dataset information
-* Model/evaluator version
-* Fairness measurements
+The current evaluation architecture includes the foundations for recording:
+
+* Evaluation state
+* Evaluator/model identifier
 * Structured judgments
-* Confidence information
-* Calibration results
-* Policy version
-* Final action
-* Human-review outcome
-* Mitigation history
+* Policy result
+* State hash
+* Timestamp
 
-The objective is to make an AI evaluation reproducible and inspectable after the fact.
+A complete governance reporting system remains under development.
 
 ---
 
-## 6. Proposed Architecture
-
-The high-level architecture is:
+## 7. Proposed Architecture
 
 ```text
                     AI System / Dataset
@@ -368,152 +427,121 @@ The high-level architecture is:
                       Calibration
 ```
 
-For remediation:
+The important architectural boundary is:
 
 ```text
-Original System
-      ↓
-Evaluation
-      ↓
-Issue Identified
-      ↓
-Mitigation
-      ↓
-Re-evaluation
-      ↓
-Comparison
-      ↓
-Audit
+TypeSafe / evaluator
+        ↓
+    evaluates
+        ↓
+BiasGuard
+        ↓
+    governs
 ```
+
+The evaluator is not the policy authority.
 
 ---
 
-## 7. Project Plan
-
-The original project plan focused on implementing the fairness and mitigation modules first.
-
-The updated roadmap expands this into a layered evaluation and governance system.
+## 8. Project Plan
 
 ### Phase 1: Deterministic Measurement
 
-* Stabilize fairness metric implementations
-* Add input validation
-* Add group-level reporting
-* Expand metric test coverage
-* Define consistent metric interfaces
+**Status: Implemented / stabilization**
+
+* Fairness metric implementations
+* Metric validation
+* Automated tests
+* Basic CLI demonstration
+* Python packaging
 
 ### Phase 2: Structured Evaluation
 
-* Integrate the structured evaluation adapter
-* Implement binary, categorical, and ordered judgments
-* Define evaluation state schemas
-* Add confidence and uncertainty handling
-* Add deterministic policy composition
+**Status: In development**
 
-### Phase 3: Calibration
-
-* Store evaluator judgments
-* Create human-adjudicated labels
-* Implement binary calibration
-* Implement score calibration
-* Implement categorical evaluation analysis
-* Add model/evaluator version comparisons
-* Separate calibration from policy threshold selection
-
-### Phase 4: Human Review & Audit
-
-* Add human-review routing
-* Store adjudication results
-* Implement audit records
-* Add state hashes
-* Version policies and evaluators
-* Support reproducible evaluation
-
-### Phase 5: Reporting & Visualization
-
-* Build evaluation dashboards
-* Visualize fairness metrics
-* Visualize confidence and calibration
-* Compare model/evaluator versions
-* Visualize policy outcomes
-* Show human-review volume
-* Generate audit reports
-
-### Phase 6: Mitigation & Re-evaluation
-
-* Add selected mitigation strategies
-* Compare pre- and post-mitigation metrics
-* Re-run structured evaluation
-* Test whether identified issues were reduced
-* Detect unintended changes introduced by mitigation
-
----
-
-## 8. Deliverables
-
-The project is intended to produce:
-
-### Core Library
-
-Python modules for:
-
-* Fairness metrics
-* Evaluation
-* TypeSafe integration
-* Policy routing
-* Calibration
-* Audit logging
-* Counterfactual testing
-
-### Evaluation Layer
-
-A structured interface capable of representing:
-
+* Structured evaluation adapter
 * Binary judgments
 * Categorical judgments
 * Ordered severity judgments
-* Confidence
-* Evaluator metadata
+* Confidence handling
+* Deterministic policy composition
 
-### Calibration Toolkit
+### Phase 3: Calibration
 
-Utilities for:
+**Status: In development**
 
-* Reliability analysis
-* Threshold analysis
-* Score agreement
-* Evaluator comparison
-* Human-adjudicated validation
+* Judgment storage
+* Human-adjudicated labels
+* Binary calibration
+* Score calibration
+* Categorical evaluation analysis
+* Threshold trade-off analysis
+* Evaluator/model version comparison
 
-### Reporting Layer
+### Phase 4: Human Review & Audit
 
-Reports and visualizations for:
+**Status: In development**
 
-* Fairness metrics
-* Evaluation results
-* Calibration
-* Policy decisions
-* Human review
-* Mitigation outcomes
+* Human-review routing
+* Adjudication storage
+* State hashes
+* Policy versioning
+* Audit records
+* Reproducible evaluation
 
-### Documentation
+### Phase 5: Reporting & Visualization
 
-Documentation covering:
+**Status: Planned**
 
-* Architecture
-* Installation
-* Configuration
-* Evaluation methodology
-* Calibration methodology
-* Policy design
-* Auditability
-* Extension points
+* Fairness dashboards
+* Calibration dashboards
+* Confidence visualization
+* Model/evaluator comparisons
+* Policy outcome visualization
+* Audit reports
+
+### Phase 6: Mitigation & Re-evaluation
+
+**Status: Planned**
+
+* Mitigation strategies
+* Before/after comparison
+* Re-evaluation
+* Regression detection
+* Unintended-impact analysis
 
 ---
 
-## 9. Repository Architecture
+## 9. Deliverables
 
-The proposed repository structure is:
+### Current
+
+* Python fairness metric library
+* Metric test suite
+* CLI demonstration
+* Package configuration
+* Project documentation
+
+### In Development
+
+* Structured evaluation layer
+* TypeSafe adapter
+* Policy evaluation
+* Calibration toolkit
+* Evaluation audit records
+
+### Planned
+
+* Interactive dashboard
+* Counterfactual testing framework
+* Human-review interface
+* Mitigation workflows
+* Governance reporting
+* Production deployment components
+
+---
+
+## 10. Repository Architecture
 
 ```text
 BiasGuard/
@@ -540,32 +568,30 @@ BiasGuard/
 └── pyproject.toml
 ```
 
-The external structured-evaluation provider should remain isolated behind an adapter.
-
-This prevents the core policy and governance architecture from becoming dependent on a single evaluator implementation.
+The external structured-evaluation provider is isolated behind an adapter so that BiasGuard's policy and governance architecture does not become dependent on a single provider.
 
 ---
 
-## 10. Alignment with Current AI Evaluation Practice
+## 11. Success Criteria
 
-BiasGuard is designed around a broader shift from simply asking whether an AI system is "biased" toward evaluating the complete decision lifecycle.
+BiasGuard should ultimately allow a user to answer, programmatically and reproducibly:
 
-The system therefore emphasizes:
+1. **What happened?**
+2. **What statistical evidence exists?**
+3. **What structured judgments were made?**
+4. **How confident were those judgments?**
+5. **How reliable has the evaluator historically been?**
+6. **What policy was applied?**
+7. **Why was the case passed, logged, reviewed, or blocked?**
+8. **Was a human involved?**
+9. **What changed after mitigation?**
+10. **Can the complete evaluation be audited later?**
 
-* Structured evaluation
-* Calibration
-* Uncertainty
-* Human oversight
-* Reproducibility
-* Policy transparency
-* Auditability
-* Continuous evaluation
-
-Rather than producing a single opaque score, BiasGuard preserves the evidence and reasoning path behind an operational decision.
+These criteria define BiasGuard as an evaluation and governance system rather than simply a collection of fairness metrics.
 
 ---
 
-## 11. Long-Term Direction
+## 12. Long-Term Direction
 
 The long-term objective is to evolve BiasGuard into a general-purpose governance and evaluation infrastructure layer for AI-driven decisions.
 
@@ -604,40 +630,36 @@ The core abstraction is:
                  Audit Log
 ```
 
-BiasGuard therefore aims to become more than a fairness-metrics library.
+BiasGuard is therefore being developed from a fairness-metrics toolkit toward an infrastructure layer for evaluating and governing AI-driven decisions.
 
-Its objective is to provide an infrastructure layer for understanding **what an AI system decided, why the evaluation considered it problematic or acceptable, how reliable that evaluation was, what policy was applied, and what happened afterward.**
-
----
-
-## 12. Success Criteria
-
-The project should be considered successful when a user can take an AI-driven decision system and answer, programmatically and reproducibly:
-
-1. **What happened?**
-2. **What statistical evidence exists?**
-3. **What structured judgments were made?**
-4. **How confident were those judgments?**
-5. **How reliable has the evaluator historically been?**
-6. **What policy was applied?**
-7. **Why was the case passed, logged, reviewed, or blocked?**
-8. **Was a human involved?**
-9. **What changed after mitigation?**
-10. **Can the complete evaluation be audited later?**
-
-These criteria define BiasGuard as an evaluation and governance system rather than simply a collection of fairness metrics.
+The project's long-term value lies in preserving the distinction between **evidence, judgment, policy, and action**.
 
 ---
 
-## References
+## 13. Success Definition
 
-The project should maintain references for:
+The project reaches its intended maturity when the evaluation lifecycle is reproducible:
 
-* Fairness metric definitions
-* Counterfactual testing methodology
-* Structured evaluation methodology
-* Calibration methodology
-* Human-review practices
-* Applicable responsible-AI and regulatory guidance
+```text
+Input
+  ↓
+Measurement
+  ↓
+Structured Evaluation
+  ↓
+Calibration
+  ↓
+Policy
+  ↓
+Action
+  ↓
+Human Review, when required
+  ↓
+Audit
+  ↓
+Re-evaluation
+```
 
-References should be maintained as implementation-specific sources are incorporated into the project documentation.
+Each stage should have a defined input, output, version, and testable behavior.
+
+This makes BiasGuard extensible beyond hiring while preserving a concrete initial application domain.
