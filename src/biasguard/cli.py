@@ -4,12 +4,24 @@ import argparse
 import json
 from pathlib import Path
 
-from .metrics import FairnessReport, disparate_impact_ratio, equal_opportunity_difference, statistical_parity_difference
+from .metrics import (
+    FairnessReport,
+    disparate_impact_ratio,
+    equal_opportunity_difference,
+    statistical_parity_difference,
+)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="biasguard", description="BiasGuard CLI (v0.1)")
-    parser.add_argument("--out", default="reports/report.json", help="Output path for report JSON")
+    parser = argparse.ArgumentParser(
+        prog="biasguard",
+        description="BiasGuard CLI (v0.1)",
+    )
+    parser.add_argument(
+        "--out",
+        default="reports/report.json",
+        help="Output path for report JSON",
+    )
     parser.add_argument("--demo", action="store_true", help="Run a small demo report (no CSV yet)")
     args = parser.parse_args()
 
@@ -30,6 +42,10 @@ def main() -> None:
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"disparate_impact_ratio": report.dir, "statistical_parity_difference": report.spd, "equal_opportunity_difference": report.eod}
+    payload = {
+        "disparate_impact_ratio": report.dir,
+        "statistical_parity_difference": report.spd,
+        "equal_opportunity_difference": report.eod,
+    }
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"Wrote: {out_path}")
