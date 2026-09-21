@@ -5,24 +5,14 @@ from typing import Any, Mapping, Protocol, Sequence
 
 
 class TypeSafeClient(Protocol):
-    """Minimal provider contract used by BiasGuard.
-
-    A concrete TypeSafe SDK adapter can implement this protocol without
-    making the TypeSafe SDK a mandatory BiasGuard dependency.
-    """
-
     def evaluate(
-        self,
-        state: Mapping[str, Any],
-        questions: Sequence[Mapping[str, Any]],
+        self, state: Mapping[str, Any], questions: Sequence[Mapping[str, Any]]
     ) -> Mapping[str, Any]:
         ...
 
 
 @dataclass(frozen=True)
 class TypeSafeObservation:
-    """Normalized observation returned by a structured evaluator."""
-
     question_id: str
     kind: str
     value: Any
@@ -32,39 +22,42 @@ class TypeSafeObservation:
 
 
 def normalize_observation(
-    question_id: str,
-    kind: str,
-    answer: Mapping[str, Any],
+    question_id: str, kind: str, answer: Mapping[str, Any]
 ) -> TypeSafeObservation:
-    """Normalize common evaluator fields without assuming an SDK response shape."""
-
     confidence = answer.get("confidence")
     probability = answer.get("probability")
+    value = answer.get("value")
 
     if confidence is not None:
         confidence = float(confidence)
     if probability is not None:
         probability = float(probability)
 
+    # Some providers use score/noul aliases instead of a generic value.
+    if value is None:
+        if "score" in answer:
+            value = answer["score"]
+        elif kind == "noul" and probability is not None:
+            value = probability
+
     return TypeSafeObservation(
         question_id=question_id,
         kind=kind,
-        value=answer.get("value"),
+        value=value,
         confidence=confidence,
         probability=probability,
-        raw=answer,
+        raw=dict(answer),
     )
 
 
-class UnavailableTypeSafeClient:
-    """Explicit fail-closed client used when no evaluator is configured."""
+class OfflineAnswersClient:
+    """Development client for recorded answers; replace with the real evaluator adapter."""
+
+    def __init__(self, answers: Mapping[str, Any]) -> None:
+        self.answers = dict(answers)
 
     def evaluate(
-        self,
-        state: Mapping[str, Any],
-        questions: Sequence[Mapping[str, Any]],
+        self, state: Mapping[str, Any], questions: Sequence[Mapping[str, Any]]
     ) -> Mapping[str, Any]:
-        raise RuntimeError(
-            "No structured evaluator is configured. "
-            "Configure a TypeSafeClient before automated evaluation."
-        )
+        del state, questions
+        return {"answers": self.answers}

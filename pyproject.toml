@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "biasguard"
-version = "0.1.0"
-description = "BiasGuard: Automated bias detection & mitigation toolkit for AI hiring systems."
+version = "0.2.0"
+description = "BiasGuard: evaluation and governance toolkit for AI decision systems."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

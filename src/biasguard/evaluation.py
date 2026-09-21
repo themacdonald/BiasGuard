@@ -69,100 +69,54 @@ def build_state(
 
 def state_hash(state: Mapping[str, Any]) -> str:
     canonical = json.dumps(
-        state,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        default=str,
+        state, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
 
 
-def _question(
-    question_id: str,
-    kind: str,
-    prompt: str,
-    **extra: Any,
-) -> dict[str, Any]:
-    return {
-        "id": question_id,
-        "type": kind,
-        "prompt": prompt,
-        **extra,
-    }
+def _question(question_id: str, kind: str, prompt: str, **extra: Any) -> dict[str, Any]:
+    return {"id": question_id, "type": kind, "prompt": prompt, **extra}
 
 
 def build_questions(
-    protected_groups: Sequence[str],
-    biasguard_flags: Sequence[str] = (),
+    protected_groups: Sequence[str], biasguard_flags: Sequence[str] = ()
 ) -> list[dict[str, Any]]:
     questions: list[dict[str, Any]] = [
         _question(
-            "protected_reference",
-            "noul",
+            "protected_reference", "noul",
             "Does the decision explicitly or implicitly use a protected characteristic?",
         ),
         _question(
-            "severity",
-            "score",
-            "How severe is the identified issue?",
-            levels=[
-                "no identified issue",
-                "minor",
-                "moderate",
-                "severe",
-                "systemic",
-            ],
+            "severity", "score", "How severe is the identified issue?",
+            levels=["no identified issue", "minor", "moderate", "severe", "systemic"],
         ),
         _question(
-            "harm",
-            "score",
-            "How much potential harm could this issue cause?",
-            levels=[
-                "negligible",
-                "limited",
-                "moderate",
-                "serious",
-                "systemic",
-            ],
+            "harm", "score", "How much potential harm could this issue cause?",
+            levels=["negligible", "limited", "moderate", "serious", "systemic"],
         ),
         _question(
-            "review_track",
-            "choice",
-            "What review track is appropriate?",
+            "review_track", "choice", "What review track is appropriate?",
             options=["pass", "log_only", "human_review", "block"],
         ),
         _question(
-            "root_cause",
-            "choice",
-            "What is the most likely root cause?",
+            "root_cause", "choice", "What is the most likely root cause?",
             options=["data", "model", "proxy", "policy", "output", "unknown"],
         ),
         _question(
-            "proxy_influence",
-            "noul",
+            "proxy_influence", "noul",
             "Could a non-protected feature act as a proxy for a protected characteristic?",
         ),
     ]
-
     for group in protected_groups:
-        questions.append(
-            _question(
-                f"bias_{group}",
-                "noul",
-                f"Does the decision show evidence of unfair treatment related to {group}?",
-            )
-        )
-
+        questions.append(_question(
+            f"bias_{group}", "noul",
+            f"Does the decision show evidence of unfair treatment related to {group}?",
+        ))
     for flag in biasguard_flags:
-        questions.append(
-            _question(
-                f"verify_{flag}",
-                "noul",
-                f"Is the BiasGuard detector flag '{flag}' supported by the decision evidence?",
-            )
-        )
-
+        questions.append(_question(
+            f"verify_{flag}", "noul",
+            f"Is the BiasGuard detector flag '{flag}' supported by the decision evidence?",
+        ))
     return questions
 
 
@@ -180,10 +134,7 @@ class BiasGuardEvaluator:
         self.policy = policy or EvaluationPolicy()
         self.model = model
 
-    def compose(
-        self,
-        observations: Sequence[TypeSafeObservation],
-    ) -> EvaluationResult:
+    def compose(self, observations: Sequence[TypeSafeObservation]) -> EvaluationResult:
         thresholds = self.policy.thresholds
         by_id = {obs.question_id: obs for obs in observations}
 
@@ -193,13 +144,9 @@ class BiasGuardEvaluator:
             if obs.question_id.startswith("bias_") and obs.probability is not None
         ]
         top_bias = max(bias_probs, default=0.0)
-
-        severity_obs = by_id.get("severity")
-        harm_obs = by_id.get("harm")
-
-        severity = self._numeric_value(severity_obs)
-        harm = self._numeric_value(harm_obs)
-        severity_conf = severity_obs.confidence if severity_obs else None
+        severity = self._numeric_value(by_id.get("severity"))
+        harm = self._numeric_value(by_id.get("harm"))
+        severity_conf = by_id["severity"].confidence if "severity" in by_id else None
 
         uncertain_bias = any(
             thresholds.bias_no < p < thresholds.bias_yes for p in bias_probs
@@ -209,116 +156,81 @@ class BiasGuardEvaluator:
             and severity_conf is not None
             and severity_conf < thresholds.min_severity_confidence
         )
+        has_concern = bool(bias_probs) and top_bias >= thresholds.bias_no
+        shaky = has_concern and (uncertain_bias or low_severity_conf)
 
-        shaky = uncertain_bias or low_severity_conf
-        detector = min(top_bias, 1.0)
         priority = (
             self.policy.severity_weight * ((severity or 0.0) / 4.0)
             + self.policy.harm_weight * ((harm or 0.0) / 4.0)
-            + self.policy.detector_weight * detector
+            + self.policy.detector_weight * min(top_bias, 1.0)
         )
 
-        if severity is not None and severity >= thresholds.block_at_severity and not shaky:
+        if (
+            has_concern
+            and severity is not None
+            and severity >= thresholds.block_at_severity
+            and not shaky
+        ):
             return EvaluationResult(
-                action="block",
-                reason="severity reached the configured block threshold",
-                priority=priority,
-                top_bias_probability=top_bias,
-                severity=severity,
-                severity_confidence=severity_conf,
-                human_review=False,
+                "block", "severity reached the configured block threshold",
+                priority, top_bias, severity, severity_conf, False,
             )
 
         if (
             shaky
-            or (severity is not None and severity >= thresholds.review_at_severity)
+            or (has_concern and severity is not None and severity >= thresholds.review_at_severity)
             or top_bias >= thresholds.bias_yes
         ):
             reason = (
                 "ambiguous or low-confidence evaluation"
-                if shaky
-                else "evaluation reached the configured human-review threshold"
+                if shaky else
+                "evaluation reached the configured human-review threshold"
             )
             return EvaluationResult(
-                action="human_review",
-                reason=reason,
-                priority=priority,
-                top_bias_probability=top_bias,
-                severity=severity,
-                severity_confidence=severity_conf,
-                human_review=True,
+                "human_review", reason, priority, top_bias, severity, severity_conf, True
             )
 
         if top_bias >= thresholds.bias_no:
             return EvaluationResult(
-                action="log_only",
-                reason="evaluation indicates a concern below the review threshold",
-                priority=priority,
-                top_bias_probability=top_bias,
-                severity=severity,
-                severity_confidence=severity_conf,
-                human_review=False,
+                "log_only", "evaluation indicates a concern below the review threshold",
+                priority, top_bias, severity, severity_conf, False,
             )
 
         return EvaluationResult(
-            action="pass",
-            reason="no configured policy threshold was reached",
-            priority=priority,
-            top_bias_probability=top_bias,
-            severity=severity,
-            severity_confidence=severity_conf,
-            human_review=False,
+            "pass", "no configured policy threshold was reached",
+            priority, top_bias, severity, severity_conf, False,
         )
 
     @staticmethod
     def _numeric_value(observation: TypeSafeObservation | None) -> float | None:
-        if observation is None:
-            return None
-        value = observation.value
-        if value is None:
+        if observation is None or observation.value is None:
             return None
         try:
-            return float(value)
+            return float(observation.value)
         except (TypeError, ValueError):
             return None
 
-    def evaluate(
-        self,
-        state: Mapping[str, Any],
-        questions: Sequence[Mapping[str, Any]],
-    ) -> EvaluationRecord:
+    def evaluate(self, state: Mapping[str, Any], questions: Sequence[Mapping[str, Any]]) -> EvaluationRecord:
         if self.client is None:
             raise RuntimeError(
-                "No structured evaluator is configured. "
-                "Use a TypeSafeClient implementation before calling evaluate()."
+                "No structured evaluator is configured. Use a TypeSafeClient implementation."
             )
-
         raw = self.client.evaluate(state, questions)
         raw_answers = raw.get("answers", raw)
-
         observations: list[TypeSafeObservation] = []
         for question in questions:
             question_id = str(question["id"])
             answer = raw_answers.get(question_id)
             if isinstance(answer, Mapping):
-                observations.append(
-                    normalize_observation(
-                        question_id,
-                        str(question["type"]),
-                        answer,
-                    )
-                )
-
+                observations.append(normalize_observation(
+                    question_id, str(question["type"]), answer
+                ))
         result = self.compose(observations)
-        record = EvaluationRecord(
+        return EvaluationRecord(
             timestamp=datetime.now(timezone.utc).isoformat(),
             model=self.model,
             policy_version=self.policy.version,
             state_hash=state_hash(state),
-            judgments={
-                obs.question_id: asdict(obs)
-                for obs in observations
-            },
+            judgments={obs.question_id: asdict(obs) for obs in observations},
             result=asdict(result),
         )
-        return record
