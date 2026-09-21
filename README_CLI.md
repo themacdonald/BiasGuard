@@ -1,54 +1,82 @@
 # BiasGuard CLI v0.2
 
-This milestone connects the structured evaluation layer and calibration layer to a usable command-line workflow.
+This milestone connects BiasGuard's structured evaluation layer and calibration layer to a usable command-line workflow.
 
-## Commands
+## Offline evaluation
 
 ```bash
-biasguard demo
-biasguard evaluate --input case.json --answers answers.json --append judgments.jsonl
-biasguard calibrate --judgments judgments.jsonl --labels labels.jsonl
+biasguard evaluate \
+  --input case.json \
+  --answers answers.json \
+  --model jev-latest \
+  --output reports/judgment.json \
+  --append judgments.jsonl
 ```
 
-## Important implementation boundary
+The offline mode is deterministic and useful for tests and fixtures.
 
-`evaluate` currently uses `OfflineAnswersClient` so the pipeline can be tested end-to-end without inventing or hard-coding a TypeSafe SDK.
+## Live TypeSafe System One evaluation
 
-The production adapter should replace `OfflineAnswersClient` with the actual structured evaluator client while preserving the `TypeSafeClient.evaluate(state, questions)` contract.
+Set the API key:
 
-The evaluator remains an evidence layer. BiasGuard owns deterministic policy composition, thresholds, routing, state hashing, and audit records.
-
-## Example case
-
-```json
-{
-  "decision": {"candidate_id": "A17", "selected": false},
-  "protected_groups": ["gender", "race"],
-  "biasguard_flags": {"disparate_impact": true},
-  "context": {"role": "analyst"}
-}
+```bash
+export TYPESAFE_API_KEY="..."
 ```
 
-## Example answers
+Then:
 
-```json
-{
-  "answers": {
-    "bias_gender": {"probability": 0.91, "confidence": 0.93},
-    "bias_race": {"probability": 0.08, "confidence": 0.94},
-    "severity": {"value": 3, "confidence": 0.91},
-    "harm": {"value": 3, "confidence": 0.88},
-    "proxy_influence": {"probability": 0.72, "confidence": 0.70},
-    "review_track": {"value": "block", "confidence": 0.80},
-    "root_cause": {"value": "policy", "confidence": 0.74},
-    "protected_reference": {"probability": 0.81, "confidence": 0.83},
-    "verify_disparate_impact": {"probability": 0.90, "confidence": 0.90}
-  }
-}
+```bash
+biasguard evaluate \
+  --input case.json \
+  --model jev-latest \
+  --output reports/judgment.json \
+  --append judgments.jsonl
 ```
 
-## Why this is deliberately offline
+When `--answers` is omitted, BiasGuard sends the state and typed questions to:
 
-The current repository does not declare a mandatory structured-evaluator SDK dependency. This milestone therefore proves the contract and audit pipeline without pretending an external SDK is already integrated.
+```text
+POST https://api.typesafe.ai/v1/systemone
+```
 
-Once the actual evaluator client is selected and configured, only the adapter boundary should need to change.
+The adapter maps BiasGuard's internal question representation to the documented System One wire format and normalizes the native response fields:
+
+- Noul → `noul`
+- Score → `score`
+- Choice → `choice`
+- Choice/Score → `confidence`
+- Choice/Score → `probabilities`
+
+Noul does not provide a separate confidence field; its probability is the answer signal.
+
+## Calibration
+
+```bash
+biasguard calibrate \
+  --judgments judgments.jsonl \
+  --labels labels.jsonl \
+  --output reports/calibration.json
+```
+
+## Architecture boundary
+
+```text
+TypeSafe / Jev
+      │
+      │ typed judgments
+      ▼
+BiasGuard adapter
+      │
+      ▼
+BiasGuard deterministic policy
+      │
+      ├── pass
+      ├── log_only
+      ├── human_review
+      └── block
+      │
+      ▼
+Audit record + calibration
+```
+
+The evaluator supplies structured evidence. BiasGuard owns governance and policy composition.

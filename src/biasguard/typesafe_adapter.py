@@ -28,16 +28,25 @@ def normalize_observation(
     probability = answer.get("probability")
     value = answer.get("value")
 
+    # Native System One wire fields:
+    # Noul -> noul, Score -> score, Choice -> choice.
+    if kind == "noul" and "noul" in answer:
+        probability = float(answer["noul"])
+        value = probability
+    elif kind == "score" and "score" in answer:
+        value = float(answer["score"])
+    elif kind == "choice" and "choice" in answer:
+        value = answer["choice"]
+
     if confidence is not None:
         confidence = float(confidence)
     if probability is not None:
         probability = float(probability)
 
-    # Some providers use score/noul aliases instead of a generic value.
+    # Generic aliases remain supported for offline fixtures.
     if value is None:
-        if "score" in answer:
-            value = answer["score"]
-        elif kind == "noul" and probability is not None:
+        value = answer.get("score") if "score" in answer else answer.get("choice")
+        if value is None and probability is not None:
             value = probability
 
     return TypeSafeObservation(

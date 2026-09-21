@@ -20,6 +20,7 @@ from .metrics import (
     statistical_parity_difference,
 )
 from .typesafe_adapter import OfflineAnswersClient
+from .typesafe_http import TypeSafeHTTPClient
 
 
 def _load_json(path: str) -> dict[str, Any]:
@@ -52,8 +53,6 @@ def cmd_demo(args: argparse.Namespace) -> None:
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
     case = _load_json(args.input)
-    answers = _load_json(args.answers)
-
     groups = case.get("protected_groups", [])
     flags = list((case.get("biasguard_flags") or {}).keys())
     state = build_state(
@@ -64,8 +63,14 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         context=case.get("context"),
     )
     questions = build_questions(groups, flags)
+    if args.answers:
+        answers = _load_json(args.answers)
+        client = OfflineAnswersClient(answers.get("answers", answers))
+    else:
+        client = TypeSafeHTTPClient(model=args.model, base_url=args.base_url)
+
     evaluator = BiasGuardEvaluator(
-        OfflineAnswersClient(answers.get("answers", answers)),
+        client,
         policy=EvaluationPolicy(),
         model=args.model,
     )
@@ -104,8 +109,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evaluate.add_argument("--input", required=True, help="Case JSON.")
     evaluate.add_argument(
-        "--answers", required=True,
-        help="JSON containing structured evaluator answers. This is an offline adapter.",
+        "--answers",
+        help="Optional recorded answers JSON. If omitted, call TypeSafe System One.",
+    )
+    evaluate.add_argument(
+        "--base-url",
+        default="https://api.typesafe.ai",
+        help="TypeSafe API base URL.",
     )
     evaluate.add_argument(
         "--model", default="jev-latest",
