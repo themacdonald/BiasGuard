@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security issue in this project, please report it by emailing [INSERT CONTACT EMAIL]. We take security seriously and appreciate your efforts to responsibly disclose vulnerabilities.
+If you discover a security issue in this project, please report it by emailing [macdonald.uwa@gmail.com]. We take security seriously and appreciate your efforts to responsibly disclose vulnerabilities.
 
 Please include as much detail as possible about the vulnerability and steps to reproduce. We will respond as quickly as we can and work to fix the issue promptly.
 
