@@ -4,6 +4,8 @@ import json
 from collections import defaultdict
 from typing import Any, Iterable, Mapping
 
+from .calibration_coverage import PairingResult, coverage_from_pairing, pair_binary_records
+
 
 def load_jsonl(path: str) -> list[dict[str, Any]]:
     with open(path, encoding="utf-8") as f:
@@ -27,6 +29,8 @@ def expected_calibration_error(
         return 0.0
     buckets: dict[int, list[tuple[float, int]]] = defaultdict(list)
     for p, y in pairs:
+        if not 0.0 <= float(p) <= 1.0:
+            raise ValueError("probabilities must be between 0 and 1")
         index = min(int(float(p) * bins), bins - 1)
         buckets[index].append((float(p), int(y)))
     total = len(pairs)
@@ -40,23 +44,65 @@ def expected_calibration_error(
     )
 
 
-def _binary_pairs(
+def _binary_pairing(
     judgments: list[Mapping[str, Any]],
     labels: list[Mapping[str, Any]],
     question_id: str,
-) -> list[tuple[float, int]]:
-    by_hash = {row.get("state_hash"): row for row in judgments}
-    pairs = []
-    for label in labels:
-        row = by_hash.get(label.get("state_hash"))
-        answer = row.get("judgments", {}).get(question_id) if row else None
-        target = label.get("binary", {}).get(question_id)
-        if not isinstance(answer, Mapping) or target is None:
+) -> tuple[list[tuple[float, int]], dict[str, Any]]:
+    result = pair_binary_records(judgments, labels, question_id)
+    coverage = coverage_from_pairing(result, supplied=len(labels))
+    return list(result.pairs), {
+        "supplied": coverage.supplied,
+        "valid": coverage.valid,
+        "invalid": coverage.invalid,
+        "unmatched": coverage.unmatched,
+        "missing_answer": coverage.missing_answer,
+        "evaluated": coverage.evaluated,
+    }
+
+
+def _matched_values(
+    judgments: list[Mapping[str, Any]],
+    labels: list[Mapping[str, Any]],
+    question_id: str,
+    section: str,
+) -> tuple[list[tuple[Any, Any, Any]], dict[str, Any]]:
+    by_hash: dict[str, Mapping[str, Any]] = {}
+    invalid = 0
+    for row in judgments:
+        state_hash = row.get("state_hash")
+        if not isinstance(state_hash, str) or not state_hash or state_hash in by_hash:
+            invalid += 1
             continue
-        probability = answer.get("probability")
-        if probability is not None:
-            pairs.append((float(probability), int(target)))
-    return pairs
+        by_hash[state_hash] = row
+
+    pairs: list[tuple[Any, Any, Any]] = []
+    unmatched = 0
+    missing_answer = 0
+    for label in labels:
+        state_hash = label.get("state_hash")
+        if not isinstance(state_hash, str) or not state_hash:
+            invalid += 1
+            continue
+        row = by_hash.get(state_hash)
+        if row is None:
+            unmatched += 1
+            continue
+        answer = row.get("judgments", {}).get(question_id)
+        target = label.get(section, {}).get(question_id)
+        if not isinstance(answer, Mapping) or target is None:
+            missing_answer += 1
+            continue
+        pairs.append((answer, target, state_hash))
+
+    return pairs, {
+        "supplied": len(labels),
+        "valid": len(pairs),
+        "invalid": invalid,
+        "unmatched": unmatched,
+        "missing_answer": missing_answer,
+        "evaluated": len(pairs),
+    }
 
 
 def reliability_bins(
@@ -83,7 +129,7 @@ def binary_report(
     labels: list[Mapping[str, Any]],
     question_id: str,
 ) -> dict[str, Any]:
-    pairs = _binary_pairs(judgments, labels, question_id)
+    pairs, coverage = _binary_pairing(judgments, labels, question_id)
     tp = sum(p >= 0.5 and y == 1 for p, y in pairs)
     tn = sum(p < 0.5 and y == 0 for p, y in pairs)
     fp = sum(p >= 0.5 and y == 0 for p, y in pairs)
@@ -91,6 +137,7 @@ def binary_report(
     return {
         "question_id": question_id,
         "n": len(pairs),
+        "coverage": coverage,
         "brier": brier_score((p for p, _ in pairs), (y for _, y in pairs)),
         "ece": expected_calibration_error((p for p, _ in pairs), (y for _, y in pairs)),
         "precision": _safe_div(tp, tp + fp),
@@ -107,7 +154,7 @@ def threshold_sweep(
     question_id: str,
     thresholds: Iterable[float] = tuple(x / 100 for x in range(50, 96, 5)),
 ) -> list[dict[str, Any]]:
-    pairs = _binary_pairs(judgments, labels, question_id)
+    pairs, coverage = _binary_pairing(judgments, labels, question_id)
     return [
         {
             "threshold": float(t),
@@ -115,6 +162,7 @@ def threshold_sweep(
             "missed": sum(p < t and y == 1 for p, y in pairs),
             "false_positive": sum(p >= t and y == 0 for p, y in pairs),
             "n": len(pairs),
+            "coverage": coverage,
         }
         for t in thresholds
     ]
@@ -125,35 +173,57 @@ def score_report(
     labels: list[Mapping[str, Any]],
     question_id: str,
 ) -> dict[str, Any]:
-    by_hash = {row.get("state_hash"): row for row in judgments}
-    pairs = []
-    for label in labels:
-        row = by_hash.get(label.get("state_hash"))
-        answer = row.get("judgments", {}).get(question_id) if row else None
-        target = label.get("score", {}).get(question_id)
-        if not isinstance(answer, Mapping) or target is None:
-            continue
-        value = answer.get("value", answer.get("score"))
-        if value is not None:
-            pairs.append((
-                float(value), float(target),
-                float(answer["confidence"]) if answer.get("confidence") is not None else None
-            ))
-    if not pairs:
+    pairs, coverage = _matched_values(judgments, labels, question_id, "score")
+    values = []
+    invalid = coverage["invalid"]
+    for answer, target, _ in pairs:
+        try:
+            value = answer.get("value", answer.get("score"))
+            confidence = (
+                float(answer["confidence"])
+                if answer.get("confidence") is not None
+                else None
+            )
+            target = float(target)
+            value = float(value)
+            if not 0.0 <= confidence <= 1.0 if confidence is not None else False:
+                invalid += 1
+                continue
+            values.append((value, target, confidence))
+        except (TypeError, ValueError):
+            invalid += 1
+    coverage["invalid"] = invalid
+    coverage["valid"] = len(values)
+    coverage["evaluated"] = len(values)
+
+    if not values:
         return {
-            "question_id": question_id, "n": 0, "exact_agreement": 0.0,
-            "within_one_level": 0.0, "mae": 0.0,
-            "average_confidence": None, "low_confidence_rate": 0.0,
+            "question_id": question_id,
+            "n": 0,
+            "coverage": coverage,
+            "exact_agreement": 0.0,
+            "within_one_level": 0.0,
+            "mae": 0.0,
+            "average_confidence": None,
+            "low_confidence_rate": 0.0,
         }
-    confidences = [c for _, _, c in pairs if c is not None]
+
+    confidences = [c for _, _, c in values if c is not None]
     return {
         "question_id": question_id,
-        "n": len(pairs),
-        "exact_agreement": sum(p == t for p, t, _ in pairs) / len(pairs),
-        "within_one_level": sum(abs(p - t) <= 1 for p, t, _ in pairs) / len(pairs),
-        "mae": sum(abs(p - t) for p, t, _ in pairs) / len(pairs),
-        "average_confidence": _safe_div(sum(confidences), len(confidences)),
-        "low_confidence_rate": _safe_div(sum(c < 0.5 for c in confidences), len(confidences)),
+        "n": len(values),
+        "coverage": coverage,
+        "exact_agreement": sum(p == t for p, t, _ in values) / len(values),
+        "within_one_level": sum(abs(p - t) <= 1 for p, t, _ in values) / len(values),
+        "mae": sum(abs(p - t) for p, t, _ in values) / len(values),
+        "average_confidence": (
+            _safe_div(sum(confidences), len(confidences))
+            if confidences else None
+        ),
+        "low_confidence_rate": (
+            _safe_div(sum(c < 0.5 for c in confidences), len(confidences))
+            if confidences else 0.0
+        ),
     }
 
 
@@ -162,25 +232,28 @@ def choice_report(
     labels: list[Mapping[str, Any]],
     question_id: str,
 ) -> dict[str, Any]:
-    by_hash = {row.get("state_hash"): row for row in judgments}
-    pairs = []
-    for label in labels:
-        row = by_hash.get(label.get("state_hash"))
-        answer = row.get("judgments", {}).get(question_id) if row else None
-        target = label.get("choice", {}).get(question_id)
-        if isinstance(answer, Mapping) and target is not None and answer.get("value") is not None:
-            pairs.append((str(answer["value"]), str(target)))
-    exact = sum(p == t for p, t in pairs)
-    classes = sorted({p for p, _ in pairs} | {t for _, t in pairs})
+    pairs, coverage = _matched_values(judgments, labels, question_id, "choice")
+    values = [
+        (str(answer["value"]), str(target))
+        for answer, target, _ in pairs
+        if answer.get("value") is not None
+    ]
+    coverage["valid"] = len(values)
+    coverage["evaluated"] = len(values)
+    exact = sum(p == t for p, t in values)
+    classes = sorted({p for p, _ in values} | {t for _, t in values})
     per_class = {
-        cls: _safe_div(sum(p == t for p, t in pairs if t == cls),
-                       sum(t == cls for _, t in pairs))
+        cls: _safe_div(
+            sum(p == t for p, t in values if t == cls),
+            sum(t == cls for _, t in values),
+        )
         for cls in classes
     }
     return {
         "question_id": question_id,
-        "n": len(pairs),
-        "accuracy": _safe_div(exact, len(pairs)),
+        "n": len(values),
+        "coverage": coverage,
+        "accuracy": _safe_div(exact, len(values)),
         "per_class_accuracy": per_class,
     }
 
@@ -189,18 +262,48 @@ def action_report(
     judgments: list[Mapping[str, Any]],
     labels: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Measure policy-action accuracy against adjudicated expected_action labels."""
-    by_hash = {row.get("state_hash"): row for row in judgments}
+    by_hash: dict[str, Mapping[str, Any]] = {}
+    invalid = 0
+    for row in judgments:
+        state_hash = row.get("state_hash")
+        if not isinstance(state_hash, str) or not state_hash or state_hash in by_hash:
+            invalid += 1
+            continue
+        by_hash[state_hash] = row
+
     values = []
+    unmatched = 0
+    missing_answer = 0
     for label in labels:
-        row = by_hash.get(label.get("state_hash"))
+        state_hash = label.get("state_hash")
         expected = label.get("expected_action")
-        if not row or expected is None:
+        if not isinstance(state_hash, str) or not state_hash:
+            invalid += 1
+            continue
+        row = by_hash.get(state_hash)
+        if row is None:
+            unmatched += 1
+            continue
+        if expected is None:
+            missing_answer += 1
             continue
         actual = row.get("result", {}).get("action")
+        if actual is None:
+            missing_answer += 1
+            continue
         values.append(actual == expected)
+
+    coverage = {
+        "supplied": len(labels),
+        "valid": len(values),
+        "invalid": invalid,
+        "unmatched": unmatched,
+        "missing_answer": missing_answer,
+        "evaluated": len(values),
+    }
     return {
         "n": len(values),
+        "coverage": coverage,
         "action_accuracy": _safe_div(sum(values), len(values)),
         "correct": sum(values),
         "incorrect": len(values) - sum(values),
@@ -216,13 +319,18 @@ def low_confidence_findings(
             if not isinstance(answer, Mapping):
                 continue
             confidence = answer.get("confidence")
-            if confidence is not None and float(confidence) < threshold:
-                findings.append({
-                    "state_hash": row.get("state_hash"),
-                    "question_id": question_id,
-                    "kind": answer.get("kind"),
-                    "confidence": float(confidence),
-                })
+            if confidence is not None:
+                try:
+                    confidence = float(confidence)
+                except (TypeError, ValueError):
+                    continue
+                if confidence < threshold:
+                    findings.append({
+                        "state_hash": row.get("state_hash"),
+                        "question_id": question_id,
+                        "kind": answer.get("kind"),
+                        "confidence": confidence,
+                    })
     return findings
 
 

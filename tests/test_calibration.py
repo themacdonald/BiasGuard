@@ -64,6 +64,7 @@ def _labels():
 def test_reports_are_question_specific():
     judgments, labels = _judgments(), _labels()
     assert binary_report(judgments, labels, "bias_gender")["n"] == 2
+    assert binary_report(judgments, labels, "bias_gender")["coverage"]["evaluated"] == 2
     assert score_report(judgments, labels, "severity")["exact_agreement"] == 1.0
     assert action_report(judgments, labels)["action_accuracy"] == 1.0
 
@@ -80,3 +81,4 @@ def test_summary_discovers_questions():
     assert "severity" in summary["scores"]
     assert "review_track" in summary["choices"]
     assert summary["action"]["correct"] == 2
+    assert summary["binary"]["bias_gender"]["coverage"]["valid"] == 2

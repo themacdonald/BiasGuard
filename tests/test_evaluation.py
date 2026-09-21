@@ -72,7 +72,7 @@ def test_low_severity_confidence_routes_to_human_review():
     assert result.action == "human_review"
 
 
-def test_concern_below_review_threshold_is_logged():
+def test_ambiguous_concern_routes_to_human_review():
     evaluator = BiasGuardEvaluator()
     result = evaluator.compose(
         [
@@ -80,7 +80,7 @@ def test_concern_below_review_threshold_is_logged():
             obs("severity", "score", value=1, confidence=0.90),
         ]
     )
-    assert result.action == "log_only"
+    assert result.action == "human_review"
 
 
 def test_no_concern_passes():
@@ -110,7 +110,7 @@ def test_custom_policy_is_respected():
             obs("severity", "score", value=2, confidence=0.95),
         ]
     )
-    assert result.action == "log_only"
+    assert result.action == "human_review"
 
 
 def test_evaluate_requires_client():
@@ -150,3 +150,39 @@ def test_evaluate_creates_auditable_record():
     assert len(record.state_hash) == 64
     assert record.result["action"] == "block"
     assert "bias_gender" in record.judgments
+
+
+def test_evaluate_rejects_non_mapping_response():
+    class BadClient:
+        def evaluate(self, state, questions):
+            return ["not", "a", "mapping"]
+
+    evaluator = BiasGuardEvaluator(client=BadClient())
+    with pytest.raises(ValueError, match="must be a mapping"):
+        evaluator.evaluate({"decision": "test"}, build_questions(["gender"]))
+
+
+def test_evaluate_rejects_probability_outside_range():
+    class BadClient:
+        def evaluate(self, state, questions):
+            return {"answers": {"bias_gender": {"noul": 1.5}}}
+
+    evaluator = BiasGuardEvaluator(client=BadClient())
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        evaluator.evaluate({"decision": "test"}, build_questions(["gender"]))
+
+
+def test_evaluate_records_missing_and_unknown_answers():
+    class PartialClient:
+        def evaluate(self, state, questions):
+            return {
+                "answers": {
+                    "bias_gender": {"noul": 0.9, "confidence": 0.9},
+                    "unexpected": {"value": "ignored"},
+                }
+            }
+
+    evaluator = BiasGuardEvaluator(client=PartialClient())
+    record = evaluator.evaluate({"decision": "test"}, build_questions(["gender"]))
+    assert record.validation["missing"] >= 5
+    assert record.validation["unknown"] == 1

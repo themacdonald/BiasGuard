@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from .typesafe_adapter import TypeSafeClient, TypeSafeObservation, normalize_observation
+from .validation import ValidationSummary, validate_evaluator_response
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ class EvaluationRecord:
     state_hash: str
     judgments: Mapping[str, Mapping[str, Any]]
     result: Mapping[str, Any]
+    validation: Mapping[str, Any]
 
 
 def build_state(
@@ -216,6 +218,7 @@ class BiasGuardEvaluator:
                 "No structured evaluator is configured. Use a TypeSafeClient implementation."
             )
         raw = self.client.evaluate(state, questions)
+        validation = validate_evaluator_response(raw, questions)
         raw_answers = raw.get("answers", raw)
         observations: list[TypeSafeObservation] = []
         for question in questions:
@@ -233,4 +236,5 @@ class BiasGuardEvaluator:
             state_hash=state_hash(state),
             judgments={obs.question_id: asdict(obs) for obs in observations},
             result=asdict(result),
+            validation=asdict(validation),
         )
