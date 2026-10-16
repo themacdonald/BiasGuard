@@ -1,6 +1,6 @@
 # BiasGuard
 
-Evidence-driven evaluation and governance toolkit for AI decision systems.
+The Evidence-driven evaluation and governance toolkit for AI decision systems.
 
 ## Architecture
 
