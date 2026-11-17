@@ -6,7 +6,7 @@ The Evidence-driven evaluation and governance toolkit for AI decision systems.
 
 Deterministic Measurement → Structured Evaluation → Uncertainty → Governance → Human Adjudication → Remediation → Re-evaluation → Verification
 
-## v0.6 foundation
+## v0.6 Foundation
 
 - Deterministic fairness audit from CSV
 - Validated protected/reference group splitting
